@@ -64,6 +64,7 @@ def daily_etl_pipeline():
         """Load the transformed CSV data into a MySQL table."""
         import mysql.connector
         import os
+        from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 
         db_config = {
             "host": "host.docker.internal",  # enables Docker-to-local communication
@@ -106,20 +107,20 @@ def daily_etl_pipeline():
         conn.close()
         print(f"[LOAD] Data successfully loaded into MySQL table: {table_name}")
 
+        preview_mysql = SQLExecuteQueryOperator(
+            task_id="preview_mysql_table",
+            conn_id="local_mysql",
+            sql="SELECT * FROM transformed_market_data_us LIMIT 5;",
+            do_xcom_push=True,  # makes query results viewable in Airflow’s XCom tab
+        )
+        
     # Define markets to process dynamically
     markets = ["us", "europe", "asia", "africa"]
 
     # Dynamically create and link tasks
     raw_files = extract_market_data.expand(market=markets)
     transformed_files = transform_market_data.expand(raw_file=raw_files)
-    load_to_mysql.expand(transformed_file=transformed_files)
-
-     # Define markets to process dynamically
-    markets = ["us", "europe", "asia", "africa"]
-
-    # Dynamically create parallel tasks
-    raw_files = extract_market_data.expand(market=markets)
-    transformed_files = transform_market_data.expand(raw_file=raw_files)
+    load_to_mysql.expand(transformed_file=transformed_files) >> preview_mysql
 
 dag = daily_etl_pipeline()
 
